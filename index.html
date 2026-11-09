@@ -1,0 +1,1336 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Гофер-маршрут</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a transit-map route of 10 stations (left rail) + the active station's panel (right). */
+:root {
+  --bg: #e9f0f3;
+  --surface: #ffffff;
+  --surface-2: #f3f7f9;
+  --ink: #102730;
+  --muted: #557079;
+  --rule: #cfdde3;
+  --accent: #00799a;
+  --accent-ink: #ffffff;
+  --accent-soft: #d5edf3;
+  --gold: #c98a00;
+  --ok: #1d7f52;
+  --ok-soft: #dcf1e6;
+  --bad: #b8402f;
+  --bad-soft: #f8e0dc;
+  --track: #b9cbd2;
+  --code-bg: #0f2730;
+  --code-fg: #d9e9ee;
+  --t-k: #5fd0ec;
+  --t-s: #f1c46b;
+  --t-c: #7d97a1;
+  --t-n: #f39a80;
+  --t-b: #9be3b4;
+  --f-display: "Unbounded", "Golos Text", system-ui, sans-serif;
+  --f-body: "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a171c; --surface: #11232a; --surface-2: #162d35; --ink: #e2eef2; --muted: #8fa9b2;
+    --rule: #22404a; --accent: #3cc3e2; --accent-ink: #062028; --accent-soft: #123a45;
+    --gold: #f2b733; --ok: #4cc38a; --ok-soft: #113a29; --bad: #f07a68; --bad-soft: #3d1c17;
+    --track: #2c4b55; --code-bg: #071216; --code-fg: #d9e9ee; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a171c; --surface: #11232a; --surface-2: #162d35; --ink: #e2eef2; --muted: #8fa9b2;
+  --rule: #22404a; --accent: #3cc3e2; --accent-ink: #062028; --accent-soft: #123a45;
+  --gold: #f2b733; --ok: #4cc38a; --ok-soft: #113a29; --bad: #f07a68; --bad-soft: #3d1c17;
+  --track: #2c4b55; --code-bg: #071216; --code-fg: #d9e9ee; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--f-body); font-size: 16px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+code { font-family: var(--f-mono); font-size: .88em; background: var(--surface-2); padding: .1em .35em; border-radius: 4px; }
+
+/* Header */
+.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 28px; }
+.brand h1 { font-family: var(--f-display); font-weight: 700; font-size: clamp(1.6rem, 4vw, 2.4rem); line-height: 1.05; margin: 0; letter-spacing: -.01em; text-wrap: balance; }
+.brand h1 span { color: var(--accent); }
+.brand p { margin: 6px 0 0; color: var(--muted); max-width: 52ch; }
+.stats { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; }
+.stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stat .lab { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.stat .val { font-family: var(--f-display); font-weight: 500; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.xpbar { width: 170px; max-width: 100%; height: 8px; background: var(--track); border-radius: 99px; overflow: hidden; margin-top: 4px; }
+.xpbar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .5s ease; }
+.sync { font-size: .8rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.sync::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--track); }
+.sync[data-s="ok"]::before { background: var(--ok); }
+.sync[data-s="err"]::before { background: var(--bad); }
+
+/* Layout */
+.layout { display: grid; grid-template-columns: minmax(250px, 300px) minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* Route map */
+.route { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 18px 14px 14px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+@media (max-width: 860px) { .route { position: static; } }
+.route h2 { font-family: var(--f-display); font-size: .78rem; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px 6px; }
+.route ol { list-style: none; margin: 0; padding: 0; }
+.st { position: relative; }
+.st::before { content: ""; position: absolute; left: 21px; top: 0; bottom: 0; width: 6px; background: var(--track); }
+.st:first-child::before { top: 24px; }
+.st:last-child::before { bottom: calc(100% - 24px); }
+.st.done::before { background: var(--accent); }
+.st.done + .st::before { background: linear-gradient(var(--accent) 24px, var(--track) 24px); }
+.st.done + .st.done::before { background: var(--accent); }
+.st-btn { position: relative; width: 100%; display: grid; grid-template-columns: 48px minmax(0,1fr) auto; align-items: center; gap: 4px; padding: 6px 6px 6px 0; border: 0; background: none; text-align: left; cursor: pointer; border-radius: 10px; }
+.st-btn:hover:not(:disabled) { background: var(--surface-2); }
+.st-btn:disabled { cursor: not-allowed; }
+.st-btn[aria-current="true"] { background: var(--accent-soft); }
+.dot { justify-self: center; width: 22px; height: 22px; border-radius: 50%; background: var(--surface); border: 5px solid var(--track); z-index: 1; }
+.st.open .dot { border-color: var(--accent); }
+.st.done .dot { background: var(--accent); border-color: var(--accent); box-shadow: inset 0 0 0 3px var(--surface); }
+.st.boss .dot { border-radius: 5px; width: 26px; height: 26px; }
+.st-txt { min-width: 0; display: flex; flex-direction: column; }
+.st-no { font-family: var(--f-display); font-size: .68rem; color: var(--muted); letter-spacing: .06em; }
+.st-name { font-weight: 600; font-size: .95rem; line-height: 1.25; }
+.st.locked .st-name { color: var(--muted); font-weight: 500; }
+.stars { font-size: .85rem; letter-spacing: 1px; color: var(--track); white-space: nowrap; }
+.stars b { color: var(--gold); font-weight: 400; }
+.lock { font-size: .75rem; color: var(--muted); }
+
+/* Panel */
+.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: clamp(18px, 3vw, 32px); min-width: 0; display: flex; flex-direction: column; gap: 22px; }
+.eyebrow { font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.panel h2 { font-family: var(--f-display); font-weight: 700; font-size: clamp(1.35rem, 3vw, 1.9rem); line-height: 1.15; margin: 4px 0 0; text-wrap: balance; }
+.panel h3 { font-family: var(--f-display); font-weight: 500; font-size: 1.02rem; margin: 0; }
+.lead { color: var(--muted); max-width: 64ch; margin: 0; }
+.cards { display: flex; flex-direction: column; gap: 18px; }
+.card { display: flex; flex-direction: column; gap: 10px; padding-top: 18px; border-top: 1px solid var(--rule); min-width: 0; }
+.card p { margin: 0; max-width: 68ch; }
+pre.code { margin: 0; background: var(--code-bg); color: var(--code-fg); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--f-mono); font-size: .84rem; line-height: 1.6; tab-size: 4; }
+pre.code code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.t-k { color: var(--t-k); } .t-s { color: var(--t-s); } .t-c { color: var(--t-c); font-style: italic; } .t-n { color: var(--t-n); } .t-b { color: var(--t-b); }
+
+.mission { background: var(--surface-2); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+.mission .lab { font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.mission p { margin: 0; }
+.mission .done-when { color: var(--muted); font-size: .92rem; }
+
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.btn { border: 1px solid var(--rule); background: var(--surface); padding: 10px 18px; border-radius: 10px; cursor: pointer; font-weight: 600; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.ghost { border-color: transparent; background: none; color: var(--muted); font-weight: 500; padding-inline: 8px; }
+.btn.danger { color: var(--bad); border-color: var(--bad); }
+
+/* Quiz */
+.qhead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; }
+.pips { display: flex; gap: 5px; flex-wrap: wrap; }
+.pip { width: 22px; height: 6px; border-radius: 99px; background: var(--track); }
+.pip.ok { background: var(--ok); } .pip.bad { background: var(--bad); } .pip.cur { background: var(--accent); }
+.streak { font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.streak b { color: var(--gold); }
+.qtext { font-size: 1.12rem; font-weight: 500; margin: 0; max-width: 64ch; }
+.qtype { font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.opts { display: flex; flex-direction: column; gap: 8px; }
+.opt { text-align: left; border: 1.5px solid var(--rule); background: var(--surface); border-radius: 10px; padding: 11px 14px; cursor: pointer; display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 8px; align-items: start; line-height: 1.45; }
+.opt:hover:not(:disabled) { border-color: var(--accent); }
+.opt .k { font-family: var(--f-mono); font-size: .8rem; color: var(--muted); padding-top: .15em; }
+.opt.sel { border-color: var(--accent); background: var(--accent-soft); }
+.opt.right { border-color: var(--ok); background: var(--ok-soft); }
+.opt.wrong { border-color: var(--bad); background: var(--bad-soft); }
+.opt:disabled { cursor: default; }
+.opt .mono { font-family: var(--f-mono); font-size: .86rem; word-break: break-word; }
+
+.order-box { display: flex; flex-direction: column; gap: 8px; }
+.slot { min-height: 52px; border: 1.5px dashed var(--track); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.slot.empty::after { content: "Нажимай на строки ниже по порядку"; color: var(--muted); font-size: .9rem; padding: 6px; }
+.chip { text-align: left; border: 1px solid var(--rule); background: var(--surface-2); border-radius: 8px; padding: 7px 10px; cursor: pointer; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 6px; align-items: start; }
+.chip:hover:not(:disabled) { border-color: var(--accent); }
+.chip .n { font-family: var(--f-mono); font-size: .78rem; color: var(--muted); }
+.chip .mono { font-family: var(--f-mono); font-size: .82rem; white-space: pre-wrap; word-break: break-word; }
+.pool { display: flex; flex-direction: column; gap: 6px; }
+.order-box .hint { font-size: .8rem; color: var(--muted); }
+
+.fill { font-family: var(--f-mono); font-size: 1rem; padding: 11px 14px; border-radius: 10px; border: 1.5px solid var(--rule); background: var(--surface); color: var(--ink); width: 100%; max-width: 420px; }
+.fill:focus { border-color: var(--accent); outline: none; }
+
+.fb { border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+.fb.ok { background: var(--ok-soft); }
+.fb.bad { background: var(--bad-soft); }
+.fb strong { font-family: var(--f-display); font-weight: 500; }
+.fb.ok strong { color: var(--ok); } .fb.bad strong { color: var(--bad); }
+.fb p { margin: 0; max-width: 68ch; }
+
+/* Result */
+.score { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+.score .big { font-family: var(--f-display); font-weight: 700; font-size: clamp(2.6rem, 8vw, 4rem); line-height: 1; font-variant-numeric: tabular-nums; }
+.score .big small { font-size: .4em; color: var(--muted); font-weight: 500; }
+.bigstars { font-size: 2rem; letter-spacing: 4px; color: var(--track); }
+.bigstars b { color: var(--gold); font-weight: 400; }
+.check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.check input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--accent); flex: none; }
+
+.rules { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.rules li { background: var(--surface-2); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+.rules b { font-family: var(--f-display); font-weight: 500; font-size: .95rem; }
+.rules span { color: var(--muted); font-size: .92rem; }
+.ranks { display: flex; flex-wrap: wrap; gap: 8px; }
+.rank { border: 1px solid var(--rule); border-radius: 99px; padding: 5px 12px; font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rank.on { border-color: var(--accent); color: var(--ink); background: var(--accent-soft); font-weight: 600; }
+
+.foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; color: var(--muted); font-size: .85rem; }
+.confirm { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Гофер<span>-</span>маршрут</h1>
+      <p>Десять станций от первого <code>:=</code> до пода в Kubernetes. Бэкенд на Go для фронтендера.</p>
+    </div>
+    <div class="stats" id="stats"></div>
+  </header>
+  <main class="layout">
+    <nav class="route" id="route" aria-label="Уровни"></nav>
+    <section class="panel" id="panel" aria-live="polite"></section>
+  </main>
+  <footer class="foot" id="foot"></footer>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- content ---------- */
+const LEVELS = [
+{
+  id: "l1", week: "Неделя 1", title: "Основы языка",
+  intro: "Типы, структуры, слайсы, map и ошибки. Всё, чем Go отличается от TypeScript на первом же файле.",
+  theory: [
+    { h: "Переменные и нулевые значения", p: "В Go нет <code>undefined</code>. Любая переменная сразу получает нулевое значение своего типа: <code>0</code> для чисел, <code>\"\"</code> для строк, <code>false</code> для bool и <code>nil</code> для указателей, слайсов, map, каналов и интерфейсов. Внутри функций обычно пишут короткое объявление <code>:=</code>.",
+      code: `var count int        // 0
+var title string     // ""
+name := "Adidas"     // тип string выведен сам
+brands := []string{} // пустой, но не nil` },
+    { h: "Структуры и методы", p: "Классов нет, есть структуры и методы на них. Метод с получателем-указателем <code>*Brand</code> может менять структуру, получатель-значение работает с копией. Аргументы всегда передаются по значению, как если бы в JS объект клонировался на каждом вызове.",
+      code: `type Brand struct {
+    ID   int
+    Name string
+}
+
+func (b *Brand) Rename(name string) {
+    b.Name = name
+}` },
+    { h: "Слайсы и map", p: "Слайс — это окно на массив: указатель, длина и вместимость. Несколько слайсов могут смотреть на один массив, поэтому запись через один видна через другой. <code>append</code> возвращает новый слайс, результат нужно присвоить. В nil-map писать нельзя, сначала <code>make</code>.",
+      code: `ids := []int{1, 2}
+ids = append(ids, 3)
+
+byName := make(map[string]int)
+byName["Nike"] = 42
+id, ok := byName["Puma"] // 0, false` },
+    { h: "Ошибки — это значения", p: "Исключений нет. Функция, которая может не сработать, последним значением возвращает <code>error</code>, и вызывающий код проверяет его сразу. Ошибку оборачивают контекстом через <code>%w</code>, чтобы по цепочке было видно, где всё сломалось.",
+      code: `func LoadBrand(id int) (Brand, error) {
+    b, err := repo.Get(id)
+    if err != nil {
+        return Brand{}, fmt.Errorf("load brand %d: %w", id, err)
+    }
+    return b, nil
+}` },
+    { h: "Интерфейсы реализуются неявно", p: "Тип удовлетворяет интерфейсу, если у него есть нужные методы. Писать <code>implements</code> не нужно. Это похоже на структурную типизацию в TypeScript.",
+      code: `type Validator interface {
+    Validate() error
+}
+
+// Brand реализует Validator просто потому,
+// что у него есть такой метод.
+func (b Brand) Validate() error { return nil }` }
+  ],
+  qs: [
+    { t: "choice", q: "Что выведет программа?", code: `var s []int
+fmt.Println(s == nil, len(s))`, oc: true,
+      opts: ["true 0", "false 0", "panic: nil slice", "[] 0"],
+      why: "Нулевое значение слайса — <code>nil</code>, и длина у него 0. С nil-слайсом можно работать: <code>len</code>, <code>range</code> и <code>append</code> работают без ошибок." },
+    { t: "choice", q: "Что произойдёт?", code: `var stock map[string]int
+stock["Nike"] = 10`,
+      opts: ["<code>panic: assignment to entry in nil map</code>", "В map появится ключ Nike со значением 10", "Ошибка компиляции", "Ничего, запись молча проигнорируется"],
+      why: "Читать из nil-map можно, вернётся нулевое значение. Писать нельзя. Создайте map через <code>make(map[string]int)</code> или литерал <code>map[string]int{}</code>." },
+    { t: "choice", q: "Что выведет программа?", code: `func rename(b Brand) {
+    b.Name = "Nike"
+}
+
+b := Brand{Name: "Adidas"}
+rename(b)
+fmt.Println(b.Name)`,
+      opts: ["Adidas", "Nike", "Пустую строку", "Ошибка компиляции"],
+      why: "Структура передаётся по значению, и функция поменяла свою копию. Чтобы изменить оригинал, принимайте <code>*Brand</code> и вызывайте <code>rename(&amp;b)</code>." },
+    { t: "choice", q: "Что выведет программа?", code: `s := []int{1, 2, 3}
+t := s[:2]
+t[0] = 9
+fmt.Println(s)`, oc: true,
+      opts: ["[9 2 3]", "[1 2 3]", "[9 2]", "panic: index out of range"],
+      why: "<code>t</code> смотрит на тот же массив, что и <code>s</code>, поэтому запись через <code>t</code> видна через <code>s</code>. Для независимой копии используйте <code>slices.Clone</code> или <code>copy</code>." },
+    { t: "fill", q: "Каким оператором внутри функции объявляют переменную и сразу присваивают ей значение? Введите оператор.",
+      acc: [":="], why: "<code>x := 5</code> — короткое объявление. На уровне пакета оно не работает, там нужен <code>var</code>." },
+    { t: "choice", q: "Как тип в Go начинает реализовывать интерфейс?",
+      opts: ["Достаточно, чтобы у типа были все методы интерфейса", "Нужно написать <code>implements</code> после имени типа", "Нужно встроить интерфейс в структуру", "Нужно зарегистрировать тип в <code>init()</code>"],
+      why: "Реализация неявная. Поэтому маленькие интерфейсы объявляют прямо там, где они нужны, не трогая исходный тип." },
+    { t: "choice", q: "Функция может завершиться неудачей. Как это принято выражать в Go?",
+      opts: ["Вернуть <code>error</code> последним значением: <code>(Brand, error)</code>", "Бросить исключение через <code>throw</code>", "Вернуть -1 или пустую структуру", "Вызвать <code>panic</code> и поймать его выше через <code>recover</code>"],
+      why: "<code>panic</code> — для ситуаций, которых быть не должно, то есть багов. «Не найдено», «невалидно», «сеть упала» — это обычные значения <code>error</code>." },
+    { t: "choice", q: "Что выведет программа?", code: `ids := make([]int, 0, 10)
+ids = append(ids, 7)
+fmt.Println(len(ids), cap(ids))`, oc: true,
+      opts: ["1 10", "1 1", "10 11", "0 10"],
+      why: "<code>make([]int, 0, 10)</code> создаёт пустой слайс с запасом под 10 элементов. <code>append</code> кладёт элемент в уже выделенную память: длина 1, вместимость 10." }
+  ],
+  mission: { text: "Заведи репозиторий <code>mdm-dict-go</code> (<code>go mod init</code>) и напиши CLI, которое читает <code>brands.json</code> в <code>[]Brand</code>, фильтрует по подстроке в названии и печатает результат.", done: "Программа запускается через <code>go run .</code> и печатает отфильтрованные бренды." }
+},
+{
+  id: "l2", week: "Неделя 2", title: "Инструменты и тесты",
+  intro: "Модули, структура проекта, линтеры и табличные тесты. Здесь появляется привычка, которая потом держит весь код.",
+  theory: [
+    { h: "Модуль и структура проекта", p: "<code>go.mod</code> — аналог <code>package.json</code>: имя модуля и зависимости. Точки входа кладут в <code>cmd/&lt;имя&gt;/main.go</code>, внутренний код — в <code>internal/</code>, который нельзя импортировать из других модулей.",
+      code: `mdm-dict-go/
+├── go.mod
+├── cmd/api/main.go
+└── internal/
+    ├── brand/
+    │   ├── brand.go
+    │   └── brand_test.go
+    └── httpapi/` },
+    { h: "Команды на каждый день", p: "Плюс <code>golangci-lint</code>: один бинарник с десятками линтеров внутри, аналог ESLint. Спорить о стиле не придётся: <code>gofmt</code> один для всех.",
+      code: `go run ./cmd/api      # собрать и запустить
+go build ./...        # проверить, что всё собирается
+go test ./... -cover  # все тесты с покрытием
+go vet ./...          # подозрительные конструкции
+gofmt -w .            # форматирование` },
+    { h: "Табличные тесты", p: "Тесты лежат рядом с кодом в файлах <code>*_test.go</code>. Принятый стиль — таблица случаев и <code>t.Run</code> на каждый, тогда упавший случай виден по имени.",
+      code: `func TestValidateName(t *testing.T) {
+    tests := []struct {
+        name    string
+        in      string
+        wantErr bool
+    }{
+        {"пустое", "", true},
+        {"обычное", "Nike", false},
+    }
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            err := ValidateName(tt.in)
+            if (err != nil) != tt.wantErr {
+                t.Errorf("ValidateName(%q) err = %v", tt.in, err)
+            }
+        })
+    }
+}` }
+  ],
+  qs: [
+    { t: "choice", q: "Как должен называться файл с тестами для <code>brand.go</code>?", oc: true,
+      opts: ["brand_test.go", "brand.test.go", "brand.spec.go", "tests/brand.go"],
+      why: "<code>go test</code> ищет только файлы с суффиксом <code>_test.go</code>. В обычную сборку они не попадают." },
+    { t: "choice", q: "Какая сигнатура у тестовой функции?", oc: true,
+      opts: ["func TestValidate(t *testing.T)", "func testValidate(t *testing.T)", "func TestValidate() error", "func Test_validate(t testing.T)"],
+      why: "Имя начинается с <code>Test</code>, единственный аргумент — <code>*testing.T</code>. Иначе <code>go test</code> функцию не найдёт." },
+    { t: "fill", q: "Какой командой запустить тесты во всех пакетах модуля?",
+      acc: ["go test ./...", "go test -v ./...", "go test ./... -v", "go test ./... -cover", "go test -cover ./..."],
+      why: "<code>./...</code> означает «этот каталог и все пакеты внутри него»." },
+    { t: "choice", q: "Чем <code>t.Fatalf</code> отличается от <code>t.Errorf</code>?",
+      opts: ["<code>Fatalf</code> сразу останавливает текущий тест, <code>Errorf</code> помечает его упавшим и продолжает", "Ничем, это синонимы", "<code>Fatalf</code> останавливает все тесты пакета", "<code>Errorf</code> только пишет в лог и не помечает тест упавшим"],
+      why: "<code>Fatalf</code> уместен, когда дальше проверять бессмысленно, например не удалось подготовить данные. <code>Errorf</code> показывает сразу все расхождения." },
+    { t: "choice", q: "Что означает каталог <code>internal/</code>?",
+      opts: ["Пакеты внутри можно импортировать только из кода, лежащего в родительском каталоге <code>internal</code>", "Это соглашение без последствий", "Код из <code>internal</code> не попадает в бинарник", "Там лежат только тесты"],
+      why: "Ограничение проверяет компилятор. Похоже на <code>exports</code> в <code>package.json</code>: снаружи видно только то, что вы явно открыли." },
+    { t: "choice", q: "Что делает <code>go vet</code>?",
+      opts: ["Статический анализ подозрительного кода, например неверного формата в <code>Printf</code>", "Форматирует код", "Обновляет зависимости", "Запускает тесты с детектором гонок"],
+      why: "<code>go vet</code> быстрый и встроенный. <code>golangci-lint</code> запускает его вместе с другими линтерами." },
+    { t: "order", q: "Расставь шаги старта нового сервиса по порядку.", code: true,
+      lines: ["go mod init github.com/me/mdm-dict-go", "написать cmd/api/main.go", "go run ./cmd/api", "go build -o bin/api ./cmd/api"],
+      why: "Сначала модуль, потом код, затем запуск в режиме разработки и только потом сборка бинарника." },
+    { t: "choice", q: "Что даёт <code>t.Run</code> в табличном тесте?", code: `for _, tt := range tests {
+    t.Run(tt.name, func(t *testing.T) {
+        // ...
+    })
+}`,
+      opts: ["Каждый случай становится отдельным подтестом со своим именем в отчёте", "Случаи выполняются в отдельных процессах", "Случаи автоматически запускаются параллельно", "Без <code>t.Run</code> код не скомпилируется"],
+      why: "Падение видно как <code>TestValidateName/пустое</code>, а один случай можно запустить через <code>-run</code>. Параллельность включается отдельно через <code>t.Parallel()</code>." }
+  ],
+  mission: { text: "Вынеси валидацию бренда (обязательные названия на RU и KZ, ограничение длины) в <code>internal/brand</code> и покрой её табличным тестом.", done: "<code>go test ./... -cover</code> зелёный, <code>golangci-lint run</code> без замечаний." }
+},
+{
+  id: "l3", week: "Неделя 3", title: "HTTP-сервер",
+  intro: "Стандартный net/http, роутинг, middleware и корректная остановка. Сторонний фреймворк не понадобится.",
+  theory: [
+    { h: "Handler — это интерфейс", p: "Весь <code>net/http</code> держится на одном интерфейсе с методом <code>ServeHTTP</code>. Обычную функцию превращает в Handler адаптер <code>http.HandlerFunc</code>.",
+      code: `type Handler interface {
+    ServeHTTP(w http.ResponseWriter, r *http.Request)
+}` },
+    { h: "Роутинг из коробки", p: "С Go 1.22 стандартный <code>ServeMux</code> понимает HTTP-метод и параметры пути. Для CRUD сторонний роутер больше не нужен.",
+      code: `mux := http.NewServeMux()
+mux.HandleFunc("GET /brands", h.list)
+mux.HandleFunc("GET /brands/{id}", h.get)
+mux.HandleFunc("PATCH /brands/{id}", h.update)
+
+func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
+    id := r.PathValue("id")
+    // ...
+}` },
+    { h: "Middleware", p: "Middleware — функция, которая принимает Handler и возвращает Handler. Это серверный аналог axios-интерсептора: код до <code>next.ServeHTTP</code> работает с запросом, после — с ответом.",
+      code: `func Recover(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        defer func() {
+            if err := recover(); err != nil {
+                http.Error(w, "internal error", 500)
+            }
+        }()
+        next.ServeHTTP(w, r)
+    })
+}` },
+    { h: "Корректная остановка", p: "Если просто убить процесс, запросы, которые сейчас выполняются, оборвутся. <code>srv.Shutdown</code> перестаёт принимать новые соединения и ждёт текущие.",
+      code: `ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+defer stop()
+
+go srv.ListenAndServe()
+<-ctx.Done()
+
+shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+srv.Shutdown(shutdownCtx)` }
+  ],
+  qs: [
+    { t: "choice", q: "Как в Go 1.22+ достать <code>{id}</code> из шаблона <code>GET /brands/{id}</code>?", oc: true,
+      opts: ["r.PathValue(\"id\")", "r.URL.Query().Get(\"id\")", "mux.Vars(r)[\"id\"]", "r.Params[\"id\"]"],
+      why: "<code>mux.Vars</code> — API стороннего gorilla/mux. <code>URL.Query</code> читает query-строку <code>?id=…</code>, а не путь." },
+    { t: "choice", q: "Какой метод должен быть у типа, чтобы он был <code>http.Handler</code>?", oc: true,
+      opts: ["ServeHTTP(http.ResponseWriter, *http.Request)", "Handle(*http.Request) http.Response", "ServeHTTP(*http.Request) error", "Call(w, r)"],
+      why: "Ответ пишется в <code>ResponseWriter</code>, ничего не возвращается. Ошибки обрабатывают внутри и превращают в статус ответа." },
+    { t: "choice", q: "Какой статус получит клиент?", code: `func create(w http.ResponseWriter, r *http.Request) {
+    w.Write([]byte(\`{"ok":true}\`))
+    w.WriteHeader(http.StatusCreated)
+}`,
+      opts: ["200: первый <code>Write</code> уже отправил заголовки", "201", "500", "Код не скомпилируется"],
+      why: "Первый <code>Write</code> неявно вызывает <code>WriteHeader(200)</code>. Повторный вызов игнорируется, в лог пишется «superfluous response.WriteHeader call». Сначала <code>WriteHeader</code>, потом <code>Write</code>." },
+    { t: "order", q: "Собери middleware, который логирует длительность запроса.", code: true,
+      lines: ["func Logging(next http.Handler) http.Handler {", "    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {", "        start := time.Now()", "        next.ServeHTTP(w, r)", "        slog.Info(\"request\", \"path\", r.URL.Path, \"took\", time.Since(start))", "    })", "}"],
+      why: "Время засекаем до <code>next.ServeHTTP</code>, а логируем после: к этому моменту обработчик уже ответил." },
+    { t: "choice", q: "Какой статус вернуть на успешный <code>POST /brands</code>, который создал бренд?",
+      opts: ["201 Created", "200 OK", "204 No Content", "202 Accepted"],
+      why: "201 означает, что ресурс создан. По JSON:API в теле возвращают созданный ресурс вместе с его id." },
+    { t: "choice", q: "Зачем при остановке вызывать <code>srv.Shutdown(ctx)</code>, а не просто выйти из <code>main</code>?",
+      opts: ["Чтобы дождаться запросов, которые уже выполняются, и не оборвать их", "Чтобы освободить порт для следующего запуска", "Иначе Kubernetes не перезапустит под", "<code>Shutdown</code> сбрасывает кэш рантайма Go"],
+      why: "Kubernetes при деплое шлёт SIGTERM каждому старому поду. Без <code>Shutdown</code> каждый деплой обрывал бы часть запросов пользователей." },
+    { t: "choice", q: "Какой шаблон совпадёт с <code>/brands/</code>, но не с <code>/brands/42</code>?", oc: true,
+      opts: ["GET /brands/{$}", "GET /brands/", "GET /brands/*", "GET /brands/{id...}"],
+      why: "Шаблон, оканчивающийся на <code>/</code>, совпадает со всем поддеревом. <code>{$}</code> ограничивает совпадение точным путём." },
+    { t: "choice", q: "Фронт на <code>localhost:5173</code> ходит в API на <code>localhost:8080</code> и ловит ошибку CORS. Какой заголовок должен вернуть сервер?", oc: true,
+      opts: ["Access-Control-Allow-Origin: http://localhost:5173", "Origin: http://localhost:5173", "Content-Security-Policy: default-src *", "X-Frame-Options: ALLOW"],
+      why: "Для <code>PATCH</code> или запросов с <code>Authorization</code> браузер сначала шлёт preflight <code>OPTIONS</code>. На него тоже нужен ответ с <code>Allow-Methods</code> и <code>Allow-Headers</code>." }
+  ],
+  mission: { text: "Сделай CRUD брендов на <code>net/http</code> с хранилищем в памяти: list, get, create, update, delete. Добавь middleware: логирование через <code>slog</code>, recover и CORS для <code>localhost:5173</code>.", done: "Фронт MDM через dev-прокси открывает список брендов из Go-сервиса." }
+},
+{
+  id: "l4", week: "Неделя 4", title: "JSON и JSON:API",
+  intro: "Теги структур, разбор тела запроса и тот же контракт JSON:API, на который ты уже пишешь фронт MDM.",
+  theory: [
+    { h: "Теги структур", p: "<code>encoding/json</code> видит только экспортируемые поля, то есть с заглавной буквы. Имя в JSON и поведение задаёт тег.",
+      code: `type BrandAttrs struct {
+    NameRu  string  \`json:"nameRu"\`
+    NameKz  string  \`json:"nameKz"\`
+    Comment *string \`json:"comment,omitempty"\`
+}` },
+    { h: "Чтение тела запроса", p: "По умолчанию лишние поля молча игнорируются. <code>DisallowUnknownFields</code> превращает их в ошибку, и опечатки в контракте видны сразу.",
+      code: `var in UpdateBrandRequest
+dec := json.NewDecoder(r.Body)
+dec.DisallowUnknownFields()
+if err := dec.Decode(&in); err != nil {
+    writeError(w, 400, "invalid json")
+    return
+}` },
+    { h: "Документ JSON:API", p: "Тот же формат, что отдаёт наш mdm-pimcore. Поля ресурса лежат в <code>attributes</code>, связи — в <code>relationships</code>, служебное — в <code>meta</code>.",
+      code: `{
+  "data": {
+    "type": "brands",
+    "id": "42",
+    "attributes": { "nameRu": "Найк", "nameKz": "Найк" },
+    "relationships": {
+      "certificates": { "data": [{ "type": "certificates", "id": "7" }] }
+    },
+    "meta": { "permissions": { "save": true } }
+  }
+}` },
+    { h: "Ошибки JSON:API", p: "По <code>source.pointer</code> фронт понимает, под каким полем формы показать ошибку.",
+      code: `{
+  "errors": [{
+    "status": "422",
+    "detail": "Название на казахском обязательно",
+    "source": { "pointer": "/data/attributes/nameKz" }
+  }]
+}` }
+  ],
+  qs: [
+    { t: "choice", q: "Что выведет программа?", code: `type Brand struct {
+    Name string \`json:"name"\`
+    code string \`json:"code"\`
+}
+
+b, _ := json.Marshal(Brand{Name: "Nike", code: "N1"})
+fmt.Println(string(b))`, oc: true,
+      opts: ["{\"name\":\"Nike\"}", "{\"name\":\"Nike\",\"code\":\"N1\"}", "{\"Name\":\"Nike\",\"code\":\"N1\"}", "ошибка компиляции из-за тега на неэкспортируемом поле"],
+      why: "<code>code</code> начинается со строчной буквы и не экспортируется, поэтому <code>encoding/json</code> его не видит. Тег не помогает, а <code>go vet</code> на такое ругается." },
+    { t: "choice", q: "Что окажется в <code>b</code>?", code: `type Stats struct {
+    Count int \`json:"count,omitempty"\`
+}
+
+b, _ := json.Marshal(Stats{Count: 0})`, oc: true,
+      opts: ["{}", "{\"count\":0}", "{\"count\":null}", "{\"count\":\"\"}"],
+      why: "<code>omitempty</code> выбрасывает нулевые значения. Если 0 нужно отличать от «не задано», используйте <code>*int</code>: <code>nil</code> пропустится, а указатель на 0 запишется." },
+    { t: "choice", q: "Какой Content-Type у ответов JSON:API?", oc: true,
+      opts: ["application/vnd.api+json", "application/json+api", "application/jsonapi", "text/json"],
+      why: "Этот media type зарегистрирован для JSON:API. Клиент присылает его же в заголовках <code>Accept</code> и <code>Content-Type</code>." },
+    { t: "choice", q: "Куда в ответе JSON:API кладут поля бренда, например <code>nameRu</code>?", oc: true,
+      opts: ["data.attributes", "data.fields", "прямо в data, рядом с id", "meta.attributes"],
+      why: "<code>type</code> и <code>id</code> лежат на верхнем уровне ресурса, всё остальное — в <code>attributes</code> и <code>relationships</code>." },
+    { t: "choice", q: "Как в ошибке JSON:API указать, что неверно поле <code>nameKz</code>?", oc: true,
+      opts: ["source.pointer: \"/data/attributes/nameKz\"", "field: \"nameKz\"", "path: \"nameKz\"", "meta.field: \"nameKz\""],
+      why: "<code>pointer</code> — это JSON Pointer (RFC 6901) на место в теле запроса." },
+    { t: "choice", q: "Что делает <code>json.Decoder</code> по умолчанию, если в теле есть поле, которого нет в структуре?",
+      opts: ["Молча игнорирует его", "Возвращает ошибку", "Складывает его в отдельную map", "Паникует"],
+      why: "Чтобы получать ошибку, вызовите <code>dec.DisallowUnknownFields()</code> до <code>Decode</code>." },
+    { t: "choice", q: "Что лежит в <code>relationships.certificates.data</code>?",
+      opts: ["Идентификаторы ресурсов: массив объектов <code>{type, id}</code>", "Полные объекты сертификатов со всеми атрибутами", "URL для загрузки сертификатов", "Количество сертификатов"],
+      why: "Полные связанные ресурсы приходят отдельно в массиве <code>included</code>, если клиент попросил <code>?include=certificates</code>." },
+    { t: "fill", q: "Какой HTTP-статус наш MDM возвращает на ошибки валидации формы? Введите число.",
+      acc: ["422"], why: "422 Unprocessable Entity: JSON синтаксически верный, но данные не прошли проверку. 400 оставляют для битого запроса." }
+  ],
+  mission: { text: "Приведи ответы своего сервиса к формату JSON:API, как в mdm-pimcore: <code>data</code>, <code>attributes</code>, <code>meta.permissions</code> и ошибки 422 с <code>source.pointer</code>.", done: "Страница бренда во фронте работает с Go-бэком без единой правки во фронте." }
+},
+{
+  id: "l5", week: "Неделя 5", title: "База данных",
+  intro: "Postgres через pgx, sqlc, транзакции, миграции и индексы. Где на самом деле живёт производительность.",
+  theory: [
+    { h: "Пул соединений и параметры", p: "<code>pgxpool</code> держит пул соединений к Postgres. Значения передаются только параметрами <code>$1</code>, <code>$2</code>. Склейка SQL через <code>fmt.Sprintf</code> — это SQL-инъекция.",
+      code: `pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+
+row := pool.QueryRow(ctx,
+    "SELECT id, name_ru FROM brands WHERE id = $1", id)
+var b Brand
+if err := row.Scan(&b.ID, &b.NameRu); err != nil {
+    if errors.Is(err, pgx.ErrNoRows) {
+        return Brand{}, ErrNotFound
+    }
+    return Brand{}, err
+}` },
+    { h: "sqlc: из SQL в типизированный Go", p: "Пишете обычный SQL с аннотацией в комментарии, а sqlc генерирует функции и структуры. Ощущение как от TS-типов, сгенерированных по OpenAPI.",
+      code: `-- name: ListBrands :many
+SELECT id, name_ru, name_kz
+FROM brands
+ORDER BY name_ru
+LIMIT $1 OFFSET $2;` },
+    { h: "Транзакции", p: "Шаблон один и тот же: <code>Begin</code>, сразу отложенный <code>Rollback</code>, в конце <code>Commit</code>.",
+      code: `tx, err := pool.Begin(ctx)
+if err != nil {
+    return err
+}
+defer tx.Rollback(ctx) // после Commit ничего не делает
+
+// ... несколько запросов через tx
+
+return tx.Commit(ctx)` },
+    { h: "Миграции и индексы", p: "Схему меняют только миграциями (<code>goose up</code> / <code>goose down</code>), руками в базе ничего не правят. Поиск без индекса означает полный проход по таблице; <code>EXPLAIN ANALYZE</code> показывает, что выбрал планировщик.",
+      code: `-- +goose Up
+CREATE INDEX brands_name_ru_idx ON brands (name_ru);
+
+-- +goose Down
+DROP INDEX brands_name_ru_idx;` }
+  ],
+  qs: [
+    { t: "choice", q: "Какой запрос безопасен?", oc: true,
+      opts: ["pool.Query(ctx, \"SELECT * FROM brands WHERE name = $1\", name)", "pool.Query(ctx, fmt.Sprintf(\"SELECT * FROM brands WHERE name = '%s'\", name))", "pool.Query(ctx, \"SELECT * FROM brands WHERE name = '\" + name + \"'\")", "все три одинаково безопасны: pgx экранирует сам"],
+      why: "С параметром значение уходит в базу отдельно от текста запроса и никогда не исполняется как SQL. Склейка строк открывает инъекцию: <code>name = \"x' OR '1'='1\"</code>." },
+    { t: "choice", q: "Зачем писать <code>defer tx.Rollback(ctx)</code> сразу после <code>Begin</code>?",
+      opts: ["Если функция выйдет до <code>Commit</code> (ошибка, panic), транзакция откатится; после <code>Commit</code> <code>Rollback</code> ничего не делает", "Чтобы откатывать транзакцию после каждого <code>Commit</code>", "Без этого <code>Commit</code> не сработает", "Чтобы вернуть соединение в пул быстрее"],
+      why: "Иначе каждую ветку с ошибкой пришлось бы закрывать руками, и одну обязательно забудут." },
+    { t: "choice", q: "Что вернёт pgx, если <code>QueryRow</code> ничего не нашёл?",
+      opts: ["<code>pgx.ErrNoRows</code> из <code>Scan</code>", "<code>nil</code> и пустую структуру", "Пустую строку результата без ошибки", "<code>panic</code>"],
+      why: "Проверяйте через <code>errors.Is(err, pgx.ErrNoRows)</code> и превращайте в свою <code>ErrNotFound</code>, чтобы хендлер не зависел от драйвера." },
+    { t: "choice", q: "Загружаем список из 50 брендов, а потом для каждого отдельным запросом его сертификаты. Сколько запросов и как это лечить?",
+      opts: ["51 запрос; лечится одним запросом с <code>WHERE brand_id = ANY($1)</code> или JOIN", "50 запросов, так и должно быть", "1 запрос: pgx сам объединяет похожие", "51 запрос; лечится увеличением пула соединений"],
+      why: "Это проблема N+1. Больше соединений не помогут: каждый запрос всё равно платит сетевую задержку." },
+    { t: "choice", q: "Поиск <code>WHERE name_ru ILIKE '%ник%'</code> медленный. Поможет ли обычный B-tree индекс по <code>name_ru</code>?",
+      opts: ["Нет: для поиска по подстроке нужен GIN-индекс с расширением <code>pg_trgm</code>", "Да, B-tree ускоряет любой LIKE", "Да, если добавить <code>ORDER BY name_ru</code>", "Нет, и никакой индекс тут не поможет"],
+      why: "B-tree работает для равенства, диапазонов и поиска по префиксу. Шаблон с <code>%</code> в начале через B-tree не ищется." },
+    { t: "choice", q: "Что делает sqlc?",
+      opts: ["Генерирует типизированный Go-код из ваших SQL-запросов", "Это ORM, который строит SQL из Go-структур", "Применяет миграции", "Кэширует запросы к базе"],
+      why: "SQL остаётся в ваших руках, а ошибки в именах колонок и типах ловятся при генерации, а не в продакшене." },
+    { t: "choice", q: "Что делает <code>goose down</code>?",
+      opts: ["Откатывает последнюю применённую миграцию", "Удаляет базу целиком", "Останавливает контейнер с Postgres", "Скачивает миграции с сервера"],
+      why: "Поэтому у каждой миграции есть секция <code>Down</code>: её проверяют так же, как <code>Up</code>." },
+    { t: "fill", q: "Какое слово SQL ставят перед запросом, чтобы увидеть план его выполнения?",
+      acc: ["explain", "explain analyze"], why: "<code>EXPLAIN</code> показывает план, <code>EXPLAIN ANALYZE</code> ещё и выполняет запрос с реальным временем. Ищите <code>Seq Scan</code> по большим таблицам." }
+  ],
+  mission: { text: "Подними Postgres в docker-compose, создай таблицы <code>brands</code>, <code>certificates</code> и <code>certificate_products</code> миграциями goose, переведи хранилище на pgx + sqlc за интерфейсом <code>BrandRepository</code>.", done: "Пагинация и фильтр работают на SQL, а <code>EXPLAIN</code> показывает индекс для поиска." }
+},
+{
+  id: "l6", week: "Неделя 6", title: "Архитектура и ошибки",
+  intro: "Слои, внедрение зависимостей без контейнера, цепочки ошибок и тесты, которые не боятся рефакторинга.",
+  theory: [
+    { h: "Слои и зависимости", p: "Handler разбирает HTTP и пишет ответ, service держит бизнес-правила, repository говорит с базой. Service ничего не знает про HTTP, handler — про SQL. DI-контейнера, как в Symfony, нет: всё собирается руками в <code>main.go</code>.",
+      code: `type BrandRepository interface {
+    Get(ctx context.Context, id int) (Brand, error)
+    Save(ctx context.Context, b Brand) error
+}
+
+type BrandService struct {
+    repo BrandRepository
+}
+
+func NewBrandService(repo BrandRepository) *BrandService {
+    return &BrandService{repo: repo}
+}` },
+    { h: "Интерфейс объявляет потребитель", p: "Идиома Go: интерфейс описывают в пакете, который его использует, и делают маленьким. Тогда в тестах service легко подменить репозиторий на версию в памяти." },
+    { h: "Цепочки ошибок", p: "Ожидаемые ошибки — переменные-сигналы вроде <code>ErrNotFound</code> или свои типы с полями. Хендлер решает, какой статус ответа им соответствует.",
+      code: `var ErrNotFound = errors.New("not found")
+
+type ValidationError struct{ Field, Msg string }
+
+func (e *ValidationError) Error() string { return e.Field + ": " + e.Msg }
+
+// в хендлере
+var ve *ValidationError
+switch {
+case errors.Is(err, ErrNotFound):
+    writeError(w, 404, "brand not found")
+case errors.As(err, &ve):
+    writeValidation(w, ve.Field, ve.Msg)
+}` },
+    { h: "Тесты хендлеров", p: "Для репозитория — <code>testcontainers-go</code>: настоящий Postgres в контейнере на время теста.",
+      code: `req := httptest.NewRequest("GET", "/brands/42", nil)
+rec := httptest.NewRecorder()
+mux.ServeHTTP(rec, req)
+
+if rec.Code != http.StatusOK {
+    t.Fatalf("status = %d", rec.Code)
+}` }
+  ],
+  qs: [
+    { t: "choice", q: "Что выведет программа?", code: `var ErrNotFound = errors.New("not found")
+
+err := fmt.Errorf("brand 42: %w", ErrNotFound)
+fmt.Println(err == ErrNotFound, errors.Is(err, ErrNotFound))`, oc: true,
+      opts: ["false true", "true true", "false false", "true false"],
+      why: "Обёртка — новое значение, поэтому <code>==</code> не совпадает. <code>errors.Is</code> разворачивает цепочку <code>%w</code> и находит <code>ErrNotFound</code> внутри." },
+    { t: "choice", q: "Чем <code>%w</code> отличается от <code>%v</code> в <code>fmt.Errorf</code>?",
+      opts: ["<code>%w</code> сохраняет исходную ошибку в цепочке, её находят <code>errors.Is</code> и <code>errors.As</code>", "<code>%w</code> печатает ошибку со стектрейсом", "Ничем, это синонимы", "<code>%v</code> сохраняет ошибку, а <code>%w</code> только текст"],
+      why: "С <code>%v</code> остаётся только текст, и проверить тип исходной ошибки уже нельзя." },
+    { t: "choice", q: "Где по идиоме Go объявлять интерфейс <code>BrandRepository</code>?",
+      opts: ["В пакете, который его использует (service), и делать его маленьким", "Рядом с реализацией в пакете postgres", "В общем пакете interfaces на весь проект", "Нигде, в Go интерфейсы не нужны"],
+      why: "Потребитель знает, какие методы ему реально нужны. Реализации не нужно о нём знать: интерфейс выполняется неявно." },
+    { t: "choice", q: "Для чего нужен <code>errors.As</code>?",
+      opts: ["Достать из цепочки ошибку конкретного типа, например <code>*ValidationError</code>, и прочитать её поля", "Сравнить две ошибки по тексту", "Превратить ошибку в строку", "Обернуть ошибку в новую"],
+      why: "<code>errors.Is</code> отвечает «это та самая ошибка?», а <code>errors.As</code> — «есть ли в цепочке ошибка такого типа, и дай мне её»." },
+    { t: "choice", q: "Что выведет программа?", code: `type ValidationError struct{ Msg string }
+
+func (e *ValidationError) Error() string { return e.Msg }
+
+func validate() error {
+    var ve *ValidationError // nil
+    return ve
+}
+
+fmt.Println(validate() == nil)`, oc: true,
+      opts: ["false", "true", "panic: nil pointer dereference", "ошибка компиляции"],
+      why: "Интерфейс равен <code>nil</code>, только если пусты и тип, и значение. Здесь внутри лежит тип <code>*ValidationError</code> со значением <code>nil</code>, поэтому интерфейс не <code>nil</code>. Возвращайте просто <code>return nil</code>." },
+    { t: "order", q: "Расставь путь запроса <code>PATCH /brands/42</code> через слои.",
+      lines: ["Handler разбирает JSON и id из пути", "Service проверяет бизнес-правила", "Repository выполняет UPDATE в базе", "Handler пишет JSON:API-ответ"],
+      why: "Запрос идёт сверху вниз и возвращается обратно. Ответ формирует только handler: service возвращает данные или ошибку." },
+    { t: "choice", q: "Что делает <code>httptest.NewRecorder</code>?",
+      opts: ["Записывает статус, заголовки и тело ответа хендлера, чтобы проверить их в тесте без сети", "Запускает настоящий HTTP-сервер на случайном порту", "Пишет HTTP-трафик в файл", "Мокает базу данных"],
+      why: "Настоящий сервер на случайном порту поднимает <code>httptest.NewServer</code>. Для тестов хендлеров обычно хватает рекордера." },
+    { t: "choice", q: "Зачем держать репозиторий в памяти, если уже есть Postgres?",
+      opts: ["Для быстрых юнит-тестов сервиса без базы", "Как кэш перед Postgres в продакшене", "Он нужен sqlc для генерации", "Незачем, его надо удалить"],
+      why: "Бизнес-правила проверяются за миллисекунды, а сам SQL проверяют отдельные интеграционные тесты." }
+  ],
+  mission: { text: "Добавь сервисный слой с правилом: сертификат с истёкшим сроком нельзя привязать к товару (ответ 422). Напиши интеграционные тесты репозитория на <code>testcontainers-go</code>.", done: "«Не найдено» из репозитория превращается в 404 одним <code>errors.Is</code>, без сравнения строк." }
+},
+{
+  id: "l7", week: "Неделя 7", title: "Авторизация",
+  intro: "JWT от Keycloak, проверка подписи, пользователь в контексте и то самое permissions.save, которое ты читаешь на фронте.",
+  theory: [
+    { h: "Как это устроено", p: "Пользователь логинится в Keycloak и получает JWT (access token). Фронт кладёт его в заголовок <code>Authorization: Bearer &lt;token&gt;</code>. Сервер не ходит в Keycloak на каждый запрос: он проверяет подпись токена публичными ключами из JWKS." },
+    { h: "Проверка токена", p: "<code>go-oidc</code> сам скачивает ключи, кэширует их и проверяет подпись, издателя, аудиторию и срок.",
+      code: `provider, _ := oidc.NewProvider(ctx, "https://sso.example/realms/portal")
+verifier := provider.Verifier(&oidc.Config{ClientID: "mdm-api"})
+
+raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+tok, err := verifier.Verify(r.Context(), raw)
+if err != nil {
+    writeError(w, 401, "invalid token")
+    return
+}` },
+    { h: "Пользователь в контексте", p: "Middleware кладёт пользователя в контекст запроса, хендлеры его оттуда достают.",
+      code: `type userKey struct{}
+
+ctx := context.WithValue(r.Context(), userKey{}, user)
+next.ServeHTTP(w, r.WithContext(ctx))
+
+// дальше в хендлере
+u, ok := r.Context().Value(userKey{}).(User)` },
+    { h: "401 или 403", p: "401 — сервер не знает, кто вы: токена нет, он просрочен или подделан. 403 — знает, но этого вам нельзя. Скрыть кнопку на фронте недостаточно, бэкенд обязан отказать сам. <code>permissions.save</code> в <code>meta</code> — только подсказка интерфейсу." }
+  ],
+  qs: [
+    { t: "choice", q: "Токен валиден, но у пользователя нет роли для редактирования бренда. Какой статус?",
+      opts: ["403 Forbidden", "401 Unauthorized", "404 Not Found", "400 Bad Request"],
+      why: "Личность известна, прав нет — это 403. 401 означает, что повторный вход может помочь." },
+    { t: "choice", q: "Откуда сервер берёт ключи для проверки подписи JWT от Keycloak?",
+      opts: ["Из JWKS-эндпоинта Keycloak, адрес которого есть в OIDC discovery", "Из самого токена, из поля key", "Из переменной окружения с паролем пользователя", "Сервер отправляет токен в Keycloak на каждый запрос"],
+      why: "Ключи кэшируются и обновляются при ротации. Если бы ключ лежал в токене, подделать его мог бы кто угодно." },
+    { t: "choice", q: "Payload в JWT зашифрован?",
+      opts: ["Нет, это base64url: прочитать может любой, а подделать без ключа нельзя", "Да, расшифровать может только сервер", "Да, ключом пользователя", "Зависит от браузера"],
+      why: "Не кладите в токен секреты. Защищает подпись, а не шифрование." },
+    { t: "choice", q: "Почему ключ для <code>context.WithValue</code> делают отдельным неэкспортируемым типом, например <code>type userKey struct{}</code>?",
+      opts: ["Чтобы ключ не столкнулся с ключами других пакетов", "Так быстрее поиск в контексте", "Строка в роли ключа не компилируется", "Чтобы значение нельзя было прочитать"],
+      why: "Строка <code>\"user\"</code> из двух разных пакетов совпала бы. Значение типа <code>userKey{}</code> может создать только ваш пакет." },
+    { t: "choice", q: "Увидит ли хендлер пользователя в контексте?", code: `func Auth(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        ctx := context.WithValue(r.Context(), userKey{}, loadUser(r))
+        r.WithContext(ctx)
+        next.ServeHTTP(w, r)
+    })
+}`,
+      opts: ["Нет: <code>WithContext</code> возвращает новый запрос, а дальше передан старый <code>r</code>", "Да, <code>WithContext</code> меняет <code>r</code> на месте", "Да, но только в тестах", "Нет, <code>context.WithValue</code> работает только в горутинах"],
+      why: "Правильно: <code>next.ServeHTTP(w, r.WithContext(ctx))</code>. Контекст и запрос в Go неизменяемые, каждая «правка» возвращает копию." },
+    { t: "choice", q: "Что обязательно проверять в access token, кроме подписи?",
+      opts: ["<code>exp</code>, <code>iss</code> и <code>aud</code>: срок, кто выдал и для какого клиента", "Только поле <code>sub</code>", "Только <code>email</code>", "Ничего, подписи достаточно"],
+      why: "Без <code>aud</code> токен, выданный другому приложению того же Keycloak, пройдёт и к вам." },
+    { t: "choice", q: "Фронт скрывает кнопку «Сохранить», если <code>permissions.save = false</code>. Нужно ли бэкенду ещё раз проверять права на <code>PATCH</code>?",
+      opts: ["Да, всегда: запрос можно отправить в обход интерфейса", "Нет, кнопки ведь нет", "Только для администраторов", "Только если включён CORS"],
+      why: "curl или DevTools отправят что угодно. Источник правды о правах — бэкенд, а фронт только отражает его решение." },
+    { t: "fill", q: "Как называется HTTP-заголовок, в котором фронт передаёт Bearer-токен?",
+      acc: ["authorization"], why: "<code>Authorization: Bearer eyJhbGciOi…</code>. Имена заголовков в HTTP не зависят от регистра." }
+  ],
+  mission: { text: "Подними Keycloak в compose, напиши auth-middleware на <code>go-oidc</code>, проверку роли на объект и вычисление <code>meta.permissions.save</code>.", done: "Пользователь без роли получает 403, а на фронте у него пропадает кнопка «Сохранить»." }
+},
+{
+  id: "l8", week: "Неделя 8", title: "Конкурентность",
+  intro: "Горутины, каналы, errgroup и отмена. Сильная сторона Go, и в JS опыта такого нет.",
+  theory: [
+    { h: "Горутины", p: "<code>go f()</code> запускает функцию конкурентно. Горутина стоит пару килобайт стека, их можно запускать тысячами. <code>main</code> горутины не ждёт: дождаться их — ваша задача.",
+      code: `var wg sync.WaitGroup
+for _, c := range certs {
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        notify(c)
+    }()
+}
+wg.Wait()` },
+    { h: "Каналы", p: "Канал — труба между горутинами. Отправка в небуферизованный канал блокируется, пока кто-то не примет значение. Закрывает канал отправитель; <code>range</code> по каналу заканчивается после <code>close</code>.",
+      code: `jobs := make(chan Certificate)
+go func() {
+    defer close(jobs)
+    for _, c := range expiring {
+        jobs <- c
+    }
+}()
+for c := range jobs {
+    fmt.Println(c.ID)
+}` },
+    { h: "errgroup и ограничение параллелизма", p: "<code>errgroup</code> ждёт все горутины, возвращает первую ошибку и отменяет общий контекст. <code>SetLimit</code> ограничивает число одновременных задач.",
+      code: `g, ctx := errgroup.WithContext(ctx)
+g.SetLimit(5) // не больше 5 одновременно
+
+for _, c := range certs {
+    g.Go(func() error {
+        return notifier.Send(ctx, c)
+    })
+}
+if err := g.Wait(); err != nil {
+    return err
+}` },
+    { h: "Отмена и гонки", p: "Долгая горутина слушает <code>ctx.Done()</code> в <code>select</code>, чтобы вовремя остановиться. Общие данные защищают <code>sync.Mutex</code>. Флаг <code>-race</code> ловит гонки данных во время выполнения.",
+      code: `for {
+    select {
+    case <-ctx.Done():
+        return ctx.Err()
+    case <-ticker.C:
+        checkExpiring(ctx)
+    }
+}` }
+  ],
+  qs: [
+    { t: "choice", q: "Что выведет программа?", code: `ch := make(chan int, 2)
+ch <- 1
+ch <- 2
+close(ch)
+for v := range ch {
+    fmt.Print(v)
+}`, oc: true,
+      opts: ["12", "21", "panic: send on closed channel", "программа зависнет"],
+      why: "Буфер на два элемента принимает оба значения без получателя. После <code>close</code> цикл <code>range</code> дочитывает буфер и выходит." },
+    { t: "choice", q: "Что произойдёт?", code: `func main() {
+    ch := make(chan int)
+    ch <- 1
+    fmt.Println(<-ch)
+}`,
+      opts: ["<code>fatal error: all goroutines are asleep - deadlock!</code>", "Выведет 1", "Выведет 0", "<code>panic: send on nil channel</code>"],
+      why: "Отправка в небуферизованный канал ждёт получателя, а получатель — следующая строка той же горутины. Рантайм видит, что все горутины спят, и падает." },
+    { t: "choice", q: "Что гарантированно выведет код на Go 1.22+?", code: `var wg sync.WaitGroup
+for i := 0; i < 3; i++ {
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        fmt.Print(i)
+    }()
+}
+wg.Wait()`,
+      opts: ["Цифры 0, 1 и 2 в произвольном порядке", "Ровно <code>012</code>", "<code>333</code>", "Ничего, main завершится раньше"],
+      why: "С Go 1.22 у каждой итерации своя переменная <code>i</code>. Порядок не гарантирован: планировщик запускает горутины как хочет. До 1.22 часто печаталось <code>333</code>." },
+    { t: "choice", q: "Как ограничить отправку уведомлений пятью одновременными горутинами?",
+      opts: ["<code>errgroup</code> с <code>g.SetLimit(5)</code> или семафор: буферизованный канал на 5 мест", "<code>runtime.GOMAXPROCS(5)</code>", "<code>time.Sleep</code> между запусками", "<code>sync.WaitGroup</code> с <code>Add(5)</code>"],
+      why: "<code>GOMAXPROCS</code> ограничивает потоки ОС, исполняющие горутины, а не число самих горутин." },
+    { t: "choice", q: "Две горутины одновременно пишут в обычную map. Что будет?",
+      opts: ["Рантайм может упасть с <code>fatal error: concurrent map writes</code>", "Победит последняя запись, всё нормально", "Go сам поставит блокировку", "Ошибка компиляции"],
+      why: "Защитите map через <code>sync.Mutex</code> или <code>sync.RWMutex</code>. <code>go test -race</code> найдёт такие места." },
+    { t: "fill", q: "Какой флаг <code>go test</code> включает детектор гонок данных? Введите флаг.",
+      acc: ["-race", "--race"], why: "Детектор замедляет программу в несколько раз, поэтому его включают в тестах и CI, а не в продакшене." },
+    { t: "choice", q: "Кто должен закрывать канал?",
+      opts: ["Отправитель, когда больше ничего не будет отправлять", "Получатель, когда всё прочитал", "Любая горутина", "Каналы никогда не нужно закрывать"],
+      why: "Отправка в закрытый канал вызывает panic. Получатель не знает, будет ли ещё отправка, поэтому закрывает тот, кто пишет." },
+    { t: "choice", q: "Зачем фоновому воркеру <code>case &lt;-ctx.Done()</code> в <code>select</code>?",
+      opts: ["Чтобы остановиться при отмене контекста, например по SIGTERM, а не висеть вечно", "Чтобы ускорить ticker", "Чтобы не было гонок данных", "Без этого <code>select</code> не скомпилируется"],
+      why: "Горутина, которая не слушает отмену, утекает: она переживёт запрос или остановку и будет держать ресурсы." }
+  ],
+  mission: { text: "Напиши воркер, который раз в N минут ищет сертификаты с истекающим сроком и уведомляет о них пулом из 5 горутин (<code>errgroup</code>). Остановка по SIGTERM без потери текущей задачи.", done: "<code>go test -race</code> чистый, Ctrl+C дожидается текущей отправки и только потом выходит." }
+},
+{
+  id: "l9", week: "Неделя 9", title: "Kafka и Redis",
+  intro: "Партиции, at-least-once, идемпотентные обработчики, outbox и кэш. То же, на чём живёт наш mdm-pimcore, только на Go.",
+  theory: [
+    { h: "Топики, партиции, группы", p: "Топик делится на партиции. Порядок сообщений гарантирован только внутри партиции, а сообщения с одинаковым ключом всегда попадают в одну партицию. В consumer group каждую партицию читает ровно один потребитель.",
+      code: `rec := &kgo.Record{
+    Topic: "mdm.brand.v1",
+    Key:   []byte(strconv.Itoa(brand.ID)),
+    Value: payload,
+}
+client.Produce(ctx, rec, func(_ *kgo.Record, err error) {
+    if err != nil {
+        slog.Error("produce", "err", err)
+    }
+})` },
+    { h: "At-least-once и идемпотентность", p: "Offset фиксируют после обработки. Если потребитель упадёт между обработкой и коммитом, сообщение придёт ещё раз, поэтому обработчик обязан спокойно переживать повтор.",
+      code: `-- применяем событие, только если оно новее сохранённого
+INSERT INTO brand_cache (id, name_ru, version)
+VALUES ($1, $2, $3)
+ON CONFLICT (id) DO UPDATE
+SET name_ru = EXCLUDED.name_ru, version = EXCLUDED.version
+WHERE brand_cache.version < EXCLUDED.version;` },
+    { h: "Outbox", p: "Нельзя атомарно закоммитить транзакцию в Postgres и отправить сообщение в Kafka. Отправили после коммита и упали — событие потеряно. Отправили до коммита, а коммит откатился — улетело событие о том, чего не было. Outbox: событие пишется в таблицу в той же транзакции, а отдельный relay публикует его в Kafka." },
+    { h: "Redis", p: "Cache-aside: читаем из Redis, при промахе берём из базы и кладём в Redis с TTL, при изменении удаляем ключ. Короткие распределённые блокировки делают через <code>SET</code> с <code>NX</code> и сроком жизни.",
+      code: `ok, err := rdb.SetNX(ctx, "lock:expiry-job", hostname, 30*time.Second).Result()
+if err != nil || !ok {
+    return // задачу уже выполняет другой экземпляр
+}` }
+  ],
+  qs: [
+    { t: "choice", q: "Как гарантировать, что события одного бренда обработаются в том порядке, в котором отправлены?",
+      opts: ["Отправлять их с ключом, равным id бренда: они попадут в одну партицию", "Создать отдельный топик на каждый бренд", "Добавить в сообщение время и сортировать на потребителе", "Ничего не делать: Kafka гарантирует порядок во всём топике"],
+      why: "Порядок есть только внутри партиции. Одинаковый ключ — одна партиция — один потребитель в группе." },
+    { t: "choice", q: "Потребитель с at-least-once упал после обработки сообщения, но до коммита offset. Что будет после перезапуска?",
+      opts: ["Сообщение придёт ещё раз", "Сообщение потеряется", "Kafka сама поймёт, что оно обработано", "Потребитель начнёт читать топик с самого начала"],
+      why: "Отсюда правило: обработчик должен быть идемпотентным." },
+    { t: "choice", q: "Какой обработчик события «бренд обновлён» идемпотентен?",
+      opts: ["UPSERT с проверкой версии: применять, только если версия события больше сохранённой", "INSERT новой строки на каждое событие", "Увеличивать счётчик изменений на 1", "Отправлять письмо менеджеру о каждом событии"],
+      why: "Повтор того же события ничего не меняет, а старое событие, пришедшее после нового, не затрёт свежие данные." },
+    { t: "choice", q: "Какую проблему решает outbox?",
+      opts: ["Коммит в базу и отправку в Kafka нельзя сделать атомарно: событие теряется или улетает фантомное", "Kafka медленная, outbox её ускоряет", "Postgres не умеет хранить JSON", "Outbox заменяет consumer group"],
+      why: "Событие и изменение данных попадают в одну транзакцию. Relay может отправить событие дважды, но не потеряет его — снова нужна идемпотентность на стороне потребителя." },
+    { t: "choice", q: "Топик с одной партицией, в consumer group два потребителя. Как распределятся сообщения?",
+      opts: ["Все читает один потребитель, второй простаивает", "Поровну между двумя", "Каждый получит каждое сообщение", "Kafka откажет второму в подключении"],
+      why: "Параллелизм внутри группы ограничен числом партиций. Каждое сообщение получат оба, только если они в разных группах." },
+    { t: "choice", q: "Бренд обновили в базе. Что сделать с его копией в Redis при подходе cache-aside?",
+      opts: ["Удалить ключ: следующее чтение возьмёт свежие данные из базы", "Ничего, TTL рано или поздно истечёт", "Увеличить TTL", "Очистить весь Redis через <code>FLUSHALL</code>"],
+      why: "Ждать TTL — значит показывать устаревшие данные. <code>FLUSHALL</code> выбросит кэш всех сущностей и обрушит нагрузку на базу." },
+    { t: "choice", q: "Какая команда Redis подходит для блокировки «эту задачу выполняет только один экземпляр»?", oc: true,
+      opts: ["SET lock:job host NX PX 30000", "GET lock:job", "INCR lock:job", "EXPIRE lock:job 30"],
+      why: "<code>NX</code> — записать, только если ключа нет. <code>PX</code> — срок жизни, чтобы блокировка не повисла навсегда, если владелец упал." },
+    { t: "order", q: "Расставь шаги паттерна outbox.",
+      lines: ["BEGIN", "UPDATE brands …", "INSERT INTO outbox (event) …", "COMMIT", "Relay читает outbox и публикует в Kafka", "Relay помечает событие отправленным"],
+      why: "Изменение и событие коммитятся вместе. Публикация идёт после коммита и отдельно от запроса пользователя." }
+  ],
+  mission: { text: "При изменении бренда пиши событие <code>mdm.brand.v1</code> через outbox. Отдельный consumer идемпотентно обновляет кэш в Redis. Kafka и kafka-ui подними в compose.", done: "Повторная доставка того же сообщения ничего не ломает. Проверь, сдвинув offset группы назад." }
+},
+{
+  id: "l10", week: "Неделя 10", title: "Продакшен",
+  intro: "Docker-образ, пробы Kubernetes, метрики, профилирование и секреты. Последний шаг до настоящего деплоя.",
+  theory: [
+    { h: "Docker-образ", p: "В итоговом образе только бинарник: ни компилятора, ни shell. Обычно это 15–30 МБ.",
+      code: `FROM golang:1.25 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /api ./cmd/api
+
+FROM gcr.io/distroless/static-debian12
+COPY --from=build /api /api
+USER nonroot
+ENTRYPOINT ["/api"]` },
+    { h: "Пробы Kubernetes", p: "liveness: процесс жив? Если нет — контейнер перезапустят. readiness: под готов принимать трафик? Если нет — его выведут из балансировки, но не убьют. Зависимости вроде базы проверяют в readiness, а не в liveness, иначе падение базы перезапустит все поды разом." },
+    { h: "Наблюдаемость", p: "Логи — <code>slog</code> в JSON, трейсинг — OpenTelemetry. Профиль CPU: <code>go tool pprof http://localhost:6060/debug/pprof/profile</code>.",
+      code: `mux.Handle("GET /metrics", promhttp.Handler())
+
+requests := promauto.NewCounterVec(prometheus.CounterOpts{
+    Name: "http_requests_total",
+}, []string{"route", "code"})
+
+// pprof на отдельном внутреннем порту
+// import _ "net/http/pprof"
+go http.ListenAndServe("localhost:6060", nil)` },
+    { h: "Конфиг и секреты", p: "Конфиг читают из переменных окружения при старте и сразу валидируют: лучше упасть на старте, чем на первом запросе. Секреты приходят из Kubernetes Secret и никогда не зашиваются в образ." }
+  ],
+  qs: [
+    { t: "choice", q: "Зачем multi-stage Dockerfile?",
+      opts: ["В итоговом образе остаётся только бинарник, без компилятора и исходников", "Стадии собираются параллельно и быстрее", "Чтобы запускать несколько процессов в одном контейнере", "Так требует Kubernetes"],
+      why: "Меньше образ — быстрее деплой и меньше поверхность атаки." },
+    { t: "choice", q: "Что даёт <code>CGO_ENABLED=0</code> при сборке?",
+      opts: ["Статический бинарник без зависимости от libc: он запустится в distroless/static или scratch", "Отключает сборщик мусора", "Ускоряет программу вдвое", "Запрещает горутины"],
+      why: "С включённым cgo бинарник может ссылаться на системную libc, которой в минимальном образе нет." },
+    { t: "choice", q: "readiness-проба пода начала падать. Что сделает Kubernetes?",
+      opts: ["Перестанет слать на под трафик, но не перезапустит его", "Перезапустит контейнер", "Удалит Deployment", "Ничего"],
+      why: "Перезапуск — это liveness. Поэтому проверку базы кладут в readiness: база упала — под временно выводят из балансировки без каскада рестартов." },
+    { t: "choice", q: "Что Kubernetes отправляет процессу при остановке пода?",
+      opts: ["SIGTERM, а после grace period (по умолчанию 30 секунд) — SIGKILL", "Сразу SIGKILL", "HTTP-запрос на <code>/shutdown</code>", "SIGHUP"],
+      why: "За grace period сервис должен успеть вызвать <code>Shutdown</code> и закончить текущую работу." },
+    { t: "choice", q: "Что делает этот код?", code: `ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+defer stop()`,
+      opts: ["Возвращает контекст, который отменится при SIGTERM или Ctrl+C", "Игнорирует эти сигналы", "Сразу завершает программу при сигнале", "Отправляет SIGTERM другим процессам"],
+      why: "Этот контекст передают серверу и воркерам: все слушают <code>ctx.Done()</code> и аккуратно останавливаются." },
+    { t: "fill", q: "Какой тип метрики Prometheus подходит для числа обработанных запросов, которое только растёт? Одно слово по-английски.",
+      acc: ["counter"], why: "Counter только растёт, скорость считают через <code>rate()</code>. Gauge — для значений, которые ходят вверх и вниз, histogram — для длительностей." },
+    { t: "choice", q: "Где хранить пароль от базы?",
+      opts: ["В Kubernetes Secret, который попадает в под как переменная окружения или файл", "В Dockerfile через <code>ENV</code>", "Константой в go-файле", "В ConfigMap"],
+      why: "ConfigMap не для секретов: его видит любой, кто может читать конфиги в namespace. А пароль в образе утечёт вместе с образом." },
+    { t: "choice", q: "Сервис стал медленным под нагрузкой. С чего начать?",
+      opts: ["Снять CPU-профиль через pprof и посмотреть, где тратится время", "Переписать горячий код на ассемблере", "Увеличить число реплик в 10 раз", "Отключить логирование"],
+      why: "Сначала измерить, потом чинить. Flame graph открывается через <code>go tool pprof -http=:8081</code>." }
+  ],
+  mission: { text: "Собери образ меньше 30 МБ и задеплой сервис вместе с Postgres в minikube. Добавь <code>/healthz</code>, <code>/readyz</code>, <code>/metrics</code> и сними pprof под нагрузкой (hey или k6).", done: "Сервис работает в minikube, и по профилю ты показываешь, где он тратит время." }
+}
+];
+
+const NEED = 6;            // из 8 на обычном уровне
+const BOSS_N = 12, BOSS_NEED = 10;
+const XP_Q = 10, XP_PRACTICE = 30;
+const RANKS = [
+  { at: 0, name: "Стажёр" }, { at: 150, name: "Джун" }, { at: 400, name: "Мидл" },
+  { at: 750, name: "Сеньор" }, { at: 1100, name: "Гофер-архитектор" }
+];
+const KEY = "gopher-route-v1";
+
+/* ---------- helpers ---------- */
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const norm = (s) => String(s).trim().toLowerCase().replace(/\s+/g, " ");
+function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function shuffleNot(a) { if (a.length < 2) return a.slice(); let s; do { s = shuffle(a); } while (s.every((v, i) => v === a[i])); return s; }
+
+const KW = new Set("break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var FROM AS WORKDIR COPY RUN USER ENTRYPOINT SELECT INSERT INTO VALUES UPDATE SET WHERE ON CONFLICT DO CREATE INDEX DROP ORDER BY LIMIT OFFSET".split(" "));
+const BI = new Set("append cap close copy delete len make new panic recover nil true false iota error string int bool byte rune any".split(" "));
+function hl(src) {
+  const re = /(\/\/[^\n]*|--[^\n]*|#[^\n]*)|("(?:[^"\\\n]|\\.)*"|`[^`]*`|'(?:[^'\\\n]|\\.)*')|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*)|([\s\S])/g;
+  let out = "", m;
+  while ((m = re.exec(src))) {
+    if (m[1]) out += '<span class="t-c">' + esc(m[1]) + "</span>";
+    else if (m[2]) out += '<span class="t-s">' + esc(m[2]) + "</span>";
+    else if (m[3]) out += '<span class="t-n">' + m[3] + "</span>";
+    else if (m[4]) out += KW.has(m[4]) ? '<span class="t-k">' + m[4] + "</span>" : BI.has(m[4]) ? '<span class="t-b">' + m[4] + "</span>" : m[4];
+    else out += esc(m[5]);
+  }
+  return out;
+}
+const codeBlock = (src) => '<pre class="code"><code>' + hl(src) + "</code></pre>";
+
+/* ---------- state ---------- */
+const emptyState = () => ({ levels: {}, boss: { best: 0, passed: false } });
+let state = emptyState();
+let view = { screen: "home" };
+let sync = "local";
+let docRef = null;
+
+function lv(id) { return state.levels[id] || { best: 0, passed: false, practice: false }; }
+function starsFor(score, total, need) { return score >= need ? 3 - Math.min(2, total - score) : 0; }
+function levelStars(id) { const l = lv(id); return starsFor(l.best, 8, NEED); }
+function bossStars() { return starsFor(state.boss.best, BOSS_N, BOSS_NEED); }
+function unlocked(i) { return i === 0 || lv(LEVELS[i - 1].id).passed; }
+function allPassed() { return LEVELS.every((L) => lv(L.id).passed); }
+function totalXP() {
+  let x = 0;
+  for (const L of LEVELS) { const l = lv(L.id); x += l.best * XP_Q + (l.practice ? XP_PRACTICE : 0); }
+  return x + state.boss.best * XP_Q;
+}
+function rankOf(xp) { let r = RANKS[0], next = null; for (let i = 0; i < RANKS.length; i++) { if (xp >= RANKS[i].at) { r = RANKS[i]; next = RANKS[i + 1] || null; } } return { r, next }; }
+function nextLevelIndex() { const i = LEVELS.findIndex((L, i) => unlocked(i) && !lv(L.id).passed); return i; }
+
+function clean(s) {
+  const out = emptyState();
+  if (!s || typeof s !== "object") return out;
+  for (const L of LEVELS) {
+    const v = s.levels && s.levels[L.id];
+    if (v && typeof v === "object") out.levels[L.id] = { best: Math.max(0, Math.min(8, Number(v.best) || 0)), passed: !!v.passed, practice: !!v.practice };
+  }
+  if (s.boss) out.boss = { best: Math.max(0, Math.min(BOSS_N, Number(s.boss.best) || 0)), passed: !!s.boss.passed };
+  return out;
+}
+function merge(a, b) {
+  a = clean(a); b = clean(b);
+  const out = emptyState();
+  for (const L of LEVELS) {
+    const x = a.levels[L.id], y = b.levels[L.id];
+    if (!x && !y) continue;
+    const p = x || { best: 0, passed: false, practice: false }, q = y || { best: 0, passed: false, practice: false };
+    out.levels[L.id] = { best: Math.max(p.best, q.best), passed: p.passed || q.passed, practice: p.practice || q.practice };
+  }
+  out.boss = { best: Math.max(a.boss.best, b.boss.best), passed: a.boss.passed || b.boss.passed };
+  return out;
+}
+const hasProgress = (s) => Object.keys(s.levels).length > 0 || s.boss.best > 0;
+
+function saveLocal() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+function loadLocal() { try { const raw = localStorage.getItem(KEY); if (raw) return clean(JSON.parse(raw)); } catch (e) {} return null; }
+
+let writing = false, dirty = false;
+async function pushRemote() {
+  if (!docRef) return;
+  if (writing) { dirty = true; return; }
+  writing = true;
+  try { await docRef.set(JSON.parse(JSON.stringify(state))); setSync("ok"); }
+  catch (e) { setSync("err"); }
+  writing = false;
+  if (dirty) { dirty = false; pushRemote(); }
+}
+function persist() { saveLocal(); pushRemote(); }
+function setSync(s) { sync = s; renderStats(); }
+
+async function connect() {
+  if (!window.claude || !window.claude.use) { setSync("local"); return; }
+  try {
+    const [db, user] = await Promise.all([window.claude.use("db"), window.claude.use("user")]);
+    if (!db || !user) { setSync("local"); return; }
+    const id = await user.id();
+    if (!id) { setSync("local"); return; }
+    docRef = db.doc("data/users/" + id + "/progress");
+    const snap = await docRef.get();
+    if (snap.exists) {
+      const remote = clean(snap.data());
+      const merged = merge(state, remote);
+      const changed = JSON.stringify(merged) !== JSON.stringify(remote);
+      state = merged; saveLocal(); render();
+      if (changed) pushRemote(); else setSync("ok");
+    } else if (hasProgress(state)) { pushRemote(); }
+    else setSync("ok");
+  } catch (e) { setSync("err"); }
+}
+
+/* ---------- quiz engine ---------- */
+function qAt(ref) { return LEVELS[ref[0]].qs[ref[1]]; }
+function curQ() { return qAt(view.refs[view.i]); }
+function startQuiz(id) {
+  let refs;
+  if (id === "boss") {
+    const all = []; LEVELS.forEach((L, li) => L.qs.forEach((_, qi) => all.push([li, qi])));
+    refs = shuffle(all).slice(0, BOSS_N);
+  } else {
+    const li = LEVELS.findIndex((L) => L.id === id);
+    refs = LEVELS[li].qs.map((_, qi) => [li, qi]);
+  }
+  view = { screen: "quiz", id, refs, i: 0, correct: 0, streak: 0, results: [] };
+  prepQ();
+}
+function prepQ() {
+  const q = curQ();
+  view.picked = null; view.checked = false; view.ok = null; view.fill = ""; view.ans = [];
+  view.perm = q.t === "choice" ? shuffle(q.opts.map((_, i) => i)) : null;
+  view.pool = q.t === "order" ? shuffleNot(q.lines.map((_, i) => i)) : null;
+}
+function canCheck() {
+  const q = curQ();
+  if (q.t === "choice") return view.picked !== null;
+  if (q.t === "order") return view.ans.length === q.lines.length;
+  return norm(view.fill).length > 0;
+}
+function check() {
+  if (view.checked || !canCheck()) return;
+  const q = curQ();
+  let ok;
+  if (q.t === "choice") ok = view.picked === 0;
+  else if (q.t === "order") ok = view.ans.every((v, i) => v === i);
+  else ok = q.acc.map(norm).includes(norm(view.fill));
+  view.checked = true; view.ok = ok; view.results.push(ok);
+  if (ok) { view.correct++; view.streak++; } else view.streak = 0;
+}
+function next() {
+  if (view.i < view.refs.length - 1) { view.i++; prepQ(); return; }
+  finish();
+}
+function finish() {
+  const score = view.correct;
+  let prevBest, passed, total, need;
+  if (view.id === "boss") {
+    total = BOSS_N; need = BOSS_NEED; prevBest = state.boss.best;
+    state.boss = { best: Math.max(prevBest, score), passed: state.boss.passed || score >= need };
+  } else {
+    total = 8; need = NEED; const l = lv(view.id); prevBest = l.best;
+    state.levels[view.id] = { best: Math.max(prevBest, score), passed: l.passed || score >= need, practice: l.practice };
+  }
+  passed = score >= need;
+  view = { screen: "result", id: view.id, score, total, need, passed, gained: Math.max(0, score - prevBest) * XP_Q, results: view.results };
+  persist();
+}
+
+/* ---------- render ---------- */
+function starStr(n) { return "<b>" + "★".repeat(n) + "</b>" + "★".repeat(3 - n); }
+
+function renderStats() {
+  const xp = totalXP(), { r, next } = rankOf(xp);
+  const pct = next ? Math.round(((xp - r.at) / (next.at - r.at)) * 100) : 100;
+  const passed = LEVELS.filter((L) => lv(L.id).passed).length;
+  const syncText = { ok: "Прогресс сохранён в аккаунте", local: "Прогресс хранится в этом браузере", err: "Не удалось сохранить в аккаунт, повторим после следующего ответа" }[sync];
+  $("#stats").innerHTML =
+    '<div class="stat"><span class="lab">Ранг</span><span class="val">' + r.name + "</span></div>" +
+    '<div class="stat"><span class="lab">Опыт</span><span class="val">' + xp + " XP" + (next ? ' <span style="color:var(--muted);font-size:.8em">/ ' + next.at + "</span>" : "") + '</span><div class="xpbar" role="progressbar" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100" aria-label="До следующего ранга"><i style="width:' + pct + '%"></i></div></div>' +
+    '<div class="stat"><span class="lab">Станции</span><span class="val">' + passed + " / " + LEVELS.length + "</span></div>" +
+    '<div class="sync" data-s="' + sync + '">' + syncText + "</div>";
+}
+
+function renderRoute() {
+  const cur = view.id;
+  let h = "<h2>Маршрут</h2><ol>";
+  LEVELS.forEach((L, i) => {
+    const l = lv(L.id), open = unlocked(i);
+    const cls = ["st", l.passed ? "done" : "", open ? "open" : "locked"].join(" ");
+    h += '<li class="' + cls + '"><button class="st-btn" data-act="open" data-id="' + L.id + '"' + (open ? "" : " disabled") + (cur === L.id ? ' aria-current="true"' : "") + ">" +
+      '<span class="dot" aria-hidden="true"></span><span class="st-txt"><span class="st-no">' + String(i + 1).padStart(2, "0") + " · " + L.week + '</span><span class="st-name">' + L.title + "</span></span>" +
+      (open ? '<span class="stars" aria-label="Звёзд: ' + levelStars(L.id) + ' из 3">' + starStr(levelStars(L.id)) + "</span>" : '<span class="lock">закрыто</span>') +
+      "</button></li>";
+  });
+  const bOpen = allPassed();
+  h += '<li class="st boss ' + (state.boss.passed ? "done" : "") + " " + (bOpen ? "open" : "locked") + '"><button class="st-btn" data-act="open" data-id="boss"' + (bOpen ? "" : " disabled") + (cur === "boss" ? ' aria-current="true"' : "") + ">" +
+    '<span class="dot" aria-hidden="true"></span><span class="st-txt"><span class="st-no">Финал</span><span class="st-name">Экзамен по всему маршруту</span></span>' +
+    (bOpen ? '<span class="stars">' + starStr(bossStars()) + "</span>" : '<span class="lock">после 10</span>') + "</button></li>";
+  $("#route").innerHTML = h + "</ol>";
+}
+
+function renderHome() {
+  const ni = nextLevelIndex(), xp = totalXP(), { r } = rankOf(xp);
+  let cta;
+  if (ni >= 0) cta = '<button class="btn primary" id="primary" data-act="open" data-id="' + LEVELS[ni].id + '">' + (hasProgress(state) ? "Продолжить: " : "Начать: ") + LEVELS[ni].title + "</button>";
+  else if (!state.boss.passed) cta = '<button class="btn primary" id="primary" data-act="open" data-id="boss">Перейти к финальному экзамену</button>';
+  else cta = '<button class="btn primary" id="primary" data-act="open" data-id="boss">Пересдать финал на 3 звезды</button>';
+  return '<div><div class="eyebrow">Как играть</div><h2>Десять станций до своего сервиса на Go</h2></div>' +
+    '<p class="lead">Каждая станция — неделя плана. Сначала короткая теория, потом 8 вопросов: выбрать ответ, предсказать вывод программы, собрать код по строкам или вписать команду. По ходу ты собираешь свой сервис <code>mdm-dict-go</code>: справочник брендов и сертификатов с тем же JSON:API, что у фронта MDM.</p>' +
+    '<ul class="rules">' +
+    "<li><b>6 из 8, чтобы проехать</b><span>Следующая станция открывается, когда ответишь правильно хотя бы на 6 вопросов. 7 — две звезды, 8 — три.</span></li>" +
+    "<li><b>Опыт за лучший результат</b><span>10 XP за каждый верный ответ в лучшей попытке. Переигрывать можно сколько угодно, опыт растёт только при улучшении.</span></li>" +
+    "<li><b>Практика даёт больше</b><span>У каждой станции есть задание для сервиса. Отметь, что сделал его, и получи ещё 30 XP.</span></li>" +
+    "<li><b>Финальный экзамен</b><span>12 случайных вопросов со всего маршрута, нужно 10. Открывается после десятой станции.</span></li>" +
+    "</ul>" +
+    '<div class="row">' + cta + "</div>" +
+    '<div class="card"><h3>Ранги</h3><div class="ranks">' + RANKS.map((x) => '<span class="rank' + (x === r ? " on" : "") + '">' + x.name + " · " + x.at + " XP</span>").join("") + "</div></div>";
+}
+
+function renderTheory(L) {
+  const l = lv(L.id);
+  return '<div><div class="eyebrow">' + L.week + " · станция " + (LEVELS.indexOf(L) + 1) + "</div><h2>" + L.title + '</h2></div><p class="lead">' + L.intro + "</p>" +
+    '<div class="cards">' + L.theory.map((t) => '<article class="card"><h3>' + t.h + "</h3>" + (t.p ? "<p>" + t.p + "</p>" : "") + (t.code ? codeBlock(t.code) : "") + "</article>").join("") + "</div>" +
+    missionBox(L, l) +
+    '<div class="row"><button class="btn primary" id="primary" data-act="start">' + (l.best ? "Пройти проверку ещё раз" : "Начать проверку: 8 вопросов") + "</button>" +
+    (l.best ? '<span class="streak">Лучший результат: ' + l.best + " из 8</span>" : "") + "</div>";
+}
+function missionBox(L, l) {
+  return '<div class="mission"><span class="lab">Задание для mdm-dict-go</span><p>' + L.mission.text + '</p><p class="done-when">Готово, когда: ' + L.mission.done + "</p>" +
+    (l.passed ? '<label class="check"><input type="checkbox" id="practice-' + L.id + '" data-act="practice" data-id="' + L.id + '"' + (l.practice ? " checked" : "") + "><span>Сделал это задание на практике (+" + XP_PRACTICE + " XP)</span></label>" : '<p class="done-when">Отметить выполнение можно после того, как пройдёшь станцию.</p>') +
+    "</div>";
+}
+function renderBossIntro() {
+  return '<div><div class="eyebrow">Финал</div><h2>Экзамен по всему маршруту</h2></div>' +
+    '<p class="lead">12 случайных вопросов со всех десяти станций. Чтобы сдать, нужно 10 верных. Каждая попытка собирает новый набор.</p>' +
+    '<div class="row"><button class="btn primary" id="primary" data-act="start">Начать экзамен</button>' +
+    (state.boss.best ? '<span class="streak">Лучший результат: ' + state.boss.best + " из " + BOSS_N + "</span>" : "") + "</div>";
+}
+
+function renderQuiz() {
+  const q = curQ(), ref = view.refs[view.i], n = view.refs.length;
+  const pips = view.refs.map((_, i) => '<span class="pip ' + (i < view.results.length ? (view.results[i] ? "ok" : "bad") : i === view.i ? "cur" : "") + '"></span>').join("");
+  const typeLabel = { choice: q.code ? "Прочитай код" : "Выбери ответ", order: "Расставь по порядку", fill: "Впиши ответ" }[q.t];
+  let h = '<div class="qhead"><div class="pips" aria-label="Вопрос ' + (view.i + 1) + " из " + n + '">' + pips + '</div><span class="streak">Вопрос ' + (view.i + 1) + " из " + n + (view.streak >= 2 ? " · серия <b>" + view.streak + "</b>" : "") + "</span></div>";
+  h += '<div><div class="qtype">' + typeLabel + (view.id === "boss" ? " · " + LEVELS[ref[0]].title : "") + '</div><p class="qtext" id="qtext" tabindex="-1">' + q.q + "</p></div>";
+  if (q.code && typeof q.code === "string") h += codeBlock(q.code);
+
+  if (q.t === "choice") {
+    h += '<div class="opts" role="group" aria-label="Варианты ответа">';
+    view.perm.forEach((oi, k) => {
+      let cls = "opt";
+      if (view.checked) { if (oi === 0) cls += " right"; else if (oi === view.picked) cls += " wrong"; }
+      else if (oi === view.picked) cls += " sel";
+      const txt = q.oc ? '<span class="mono">' + esc(q.opts[oi]) + "</span>" : "<span>" + q.opts[oi] + "</span>";
+      h += '<button class="' + cls + '" data-act="pick" data-i="' + oi + '"' + (view.checked ? " disabled" : "") + ' aria-pressed="' + (oi === view.picked) + '"><span class="k">' + "ABCD"[k] + "</span>" + txt + "</button>";
+    });
+    h += "</div>";
+  } else if (q.t === "order") {
+    const mono = q.code === true;
+    const line = (li) => '<span class="' + (mono ? "mono" : "") + '">' + esc(q.lines[li]) + "</span>";
+    h += '<div class="order-box"><span class="hint">Твой порядок</span><div class="slot' + (view.ans.length ? "" : " empty") + '">';
+    view.ans.forEach((li, k) => {
+      let style = "";
+      if (view.checked) style = ' style="border-color:var(' + (li === k ? "--ok" : "--bad") + ')"';
+      h += '<button class="chip" data-act="unchip" data-k="' + k + '"' + (view.checked ? " disabled" : "") + style + ' aria-label="Убрать строку"><span class="n">' + (k + 1) + "</span>" + line(li) + "</button>";
+    });
+    h += "</div>";
+    const rest = view.pool.filter((li) => !view.ans.includes(li));
+    if (rest.length) {
+      h += '<span class="hint">Строки</span><div class="pool">' + rest.map((li) => '<button class="chip" data-act="chip" data-li="' + li + '"><span class="n">+</span>' + line(li) + "</button>").join("") + "</div>";
+    }
+    h += "</div>";
+    if (view.checked && !view.ok) h += '<div class="order-box"><span class="hint">Правильный порядок</span><div class="slot">' + q.lines.map((_, li) => '<div class="chip" style="cursor:default"><span class="n">' + (li + 1) + "</span>" + line(li) + "</div>").join("") + "</div></div>";
+  } else {
+    h += '<div class="row"><input class="fill" id="fill-input" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Ответ" value="' + esc(view.fill) + '"' + (view.checked ? " disabled" : "") + "></div>";
+    if (view.checked && !view.ok) h += '<p class="done-when" style="margin:0">Правильный ответ: <code>' + esc(q.acc[0]) + "</code></p>";
+  }
+
+  if (view.checked) {
+    h += '<div class="fb ' + (view.ok ? "ok" : "bad") + '"><strong>' + (view.ok ? "Верно" : "Неверно") + "</strong><p>" + q.why + "</p></div>";
+    h += '<div class="row"><button class="btn primary" id="primary" data-act="next">' + (view.i < n - 1 ? "Следующий вопрос" : "Посмотреть результат") + "</button></div>";
+  } else {
+    h += '<div class="row"><button class="btn primary" id="check-btn" data-act="check"' + (canCheck() ? "" : " disabled") + ">Проверить</button>" +
+      (q.t === "order" && view.ans.length ? '<button class="btn ghost" data-act="clear">Сбросить порядок</button>' : "") +
+      '<button class="btn ghost" data-act="quit">Выйти к теории</button></div>';
+  }
+  return h;
+}
+
+function renderResult() {
+  const isBoss = view.id === "boss";
+  const L = isBoss ? null : LEVELS.find((x) => x.id === view.id);
+  const stars = starsFor(view.score, view.total, view.need);
+  const li = isBoss ? -1 : LEVELS.indexOf(L);
+  let h = '<div><div class="eyebrow">' + (isBoss ? "Финал" : L.week + " · " + L.title) + "</div><h2>" +
+    (view.passed ? (isBoss ? "Экзамен сдан. Маршрут пройден" : "Станция пройдена") : "Пока не хватило") + "</h2></div>";
+  h += '<div class="score"><span class="big">' + view.score + "<small> / " + view.total + '</small></span><span class="bigstars" aria-label="Звёзд: ' + stars + '">' + starStr(stars) + "</span></div>";
+  h += '<p class="lead">' + (view.passed
+    ? (view.gained ? "Получено " + view.gained + " XP. " : "Лучший результат не превышен, опыт не изменился. ") + (stars < 3 ? "До трёх звёзд не хватает " + (view.total - view.score) + "." : "Без единой ошибки.")
+    : "Нужно " + view.need + " из " + view.total + ". Перечитай теорию: разбор к каждому ответу был под вопросом." + (view.gained ? " Зато +" + view.gained + " XP за новый лучший результат." : "")) + "</p>";
+  if (!isBoss) h += missionBox(L, lv(L.id));
+  h += '<div class="row">';
+  if (view.passed && !isBoss && li < LEVELS.length - 1) h += '<button class="btn primary" id="primary" data-act="open" data-id="' + LEVELS[li + 1].id + '">Следующая станция: ' + LEVELS[li + 1].title + "</button>";
+  else if (view.passed && !isBoss && allPassed()) h += '<button class="btn primary" id="primary" data-act="open" data-id="boss">К финальному экзамену</button>';
+  h += '<button class="btn' + (view.passed ? "" : " primary") + '"' + (view.passed ? "" : ' id="primary"') + ' data-act="start">Пройти ещё раз</button>';
+  if (!isBoss) h += '<button class="btn ghost" data-act="open" data-id="' + L.id + '">К теории</button>';
+  h += "</div>";
+  return h;
+}
+
+function renderPanel() {
+  let h;
+  if (view.screen === "home") h = renderHome();
+  else if (view.screen === "theory") h = view.id === "boss" ? renderBossIntro() : renderTheory(LEVELS.find((L) => L.id === view.id));
+  else if (view.screen === "quiz") h = renderQuiz();
+  else h = renderResult();
+  $("#panel").innerHTML = h;
+}
+let confirmReset = false;
+function renderFoot() {
+  $("#foot").innerHTML = '<span>Вопросы проверены на Go 1.22+ и актуальных версиях pgx, go-oidc и franz-go.</span>' +
+    (confirmReset
+      ? '<span class="confirm">Стереть весь прогресс? <button class="btn danger" data-act="reset-yes">Стереть</button><button class="btn ghost" data-act="reset-no">Отмена</button></span>'
+      : '<span class="row"><button class="btn ghost" data-act="home">Как играть</button>' + (hasProgress(state) ? '<button class="btn ghost" data-act="reset-ask">Сбросить прогресс</button>' : "") + "</span>");
+}
+function render() { renderStats(); renderRoute(); renderPanel(); renderFoot(); }
+
+function focusAfter(sel, scroll) {
+  const el = $(sel);
+  if (el) el.focus({ preventScroll: !scroll });
+  if (scroll && window.matchMedia("(max-width: 860px)").matches) $("#panel").scrollIntoView({ block: "start" });
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-act]");
+  if (!b || b.disabled) return;
+  const act = b.dataset.act;
+  if (act === "practice") return;
+  if (act === "open") {
+    const id = b.dataset.id;
+    view = { screen: "theory", id };
+    render(); focusAfter(".panel h2", true);
+    $(".panel h2") && $(".panel h2").setAttribute("tabindex", "-1");
+    return;
+  }
+  if (act === "home") { view = { screen: "home" }; render(); focusAfter("#primary", true); return; }
+  if (act === "start") { startQuiz(view.id); render(); focusAfter("#qtext", true); return; }
+  if (act === "quit") { view = { screen: "theory", id: view.id }; render(); return; }
+  if (act === "pick") { view.picked = Number(b.dataset.i); renderPanel(); focusAfter("#check-btn"); return; }
+  if (act === "chip") { view.ans.push(Number(b.dataset.li)); renderPanel(); const nb = $('[data-act="chip"]') || $("#check-btn"); nb && nb.focus(); return; }
+  if (act === "unchip") { view.ans.splice(Number(b.dataset.k), 1); renderPanel(); return; }
+  if (act === "clear") { view.ans = []; renderPanel(); return; }
+  if (act === "check") { check(); renderPanel(); renderRoute(); focusAfter("#primary"); return; }
+  if (act === "next") {
+    next();
+    if (view.screen === "result") { render(); focusAfter("#primary", true); }
+    else { renderPanel(); focusAfter("#qtext"); }
+    return;
+  }
+  if (act === "reset-ask") { confirmReset = true; renderFoot(); return; }
+  if (act === "reset-no") { confirmReset = false; renderFoot(); return; }
+  if (act === "reset-yes") { confirmReset = false; state = emptyState(); view = { screen: "home" }; persist(); render(); return; }
+});
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  if (t.dataset && t.dataset.act === "practice") {
+    const id = t.dataset.id, l = lv(id);
+    state.levels[id] = { ...l, practice: t.checked };
+    persist(); renderStats();
+  }
+});
+document.addEventListener("input", (e) => {
+  if (e.target.id === "fill-input" && view.screen === "quiz") {
+    view.fill = e.target.value;
+    const cb = $("#check-btn"); if (cb) cb.disabled = !canCheck();
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.id === "fill-input" && view.screen === "quiz" && !view.checked) {
+    e.preventDefault(); check(); renderPanel(); renderRoute(); focusAfter("#primary");
+  }
+});
+
+/* ---------- boot ---------- */
+function start(data) {
+  const local = loadLocal();
+  if (local) state = local;
+  if (data && data.state) state = merge(state, data.state);
+  if (data && data.view && data.view.screen) view = data.view;
+  render();
+  connect();
+}
+if (window.claude && window.claude.hot && window.claude.hot.snapshot) {
+  try { window.claude.hot.snapshot(() => ({ state, view })); } catch (e) {}
+}
+if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(start);
+else start((window.claude && window.claude.hot && window.claude.hot.data) || {});
+</script>
+
+</body></html>
